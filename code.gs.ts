@@ -153,4 +153,5 @@ function incrementarVoto(sheet, textoBusqueda, filaInicio, filaFin) {
     const valor = celdaConteo.getValue();
     celdaConteo.setValue((typeof valor === 'number' ? valor : 0) + 1);
   }
+
 }
