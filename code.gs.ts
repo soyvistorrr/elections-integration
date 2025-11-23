@@ -1,157 +1,195 @@
-// GENERAL CONFIGURATION
-
+/**
+ * ============================================================================
+ * 1. CONFIGURACIÓN GENERAL (MODIFICAR SOLO ESTA SECCIÓN)
+ * ============================================================================
+ */
 const CONFIG = {
-  SPREADSHEET_RESULTADOS_ID: '1lR05G4f8qOEEO-ZKknPiRhmqK-83uh5IYHz3rvggTlQ', 
-  SPREADSHEET_REGISTRO_ID:   '1wJTY0L5h2sgg6oL90VvZMY-fYDAiD4PZ', 
+  ID_RESULTADOS:          '1iR4t6ndPxWfuPj-o_pDPCd7VQ0WRxcAn', // Excel Público (Resultados)
+  ID_REGISTRO_SARTENEJAS: '1B1EuAculgwXf_aL3m822_qVv86o2ufzd', // Registro Privado Sartenejas
+  ID_REGISTRO_LITORAL:    '1EOBIQM0GG7s_mN7xsJrlhkw45pNLIwCV', // Registro Privado Litoral
 
-  SHEET_NAME_RESULTADOS: 'RESULTADOS',
-  SHEET_NAME_REGISTRO:   'Hoja 1',
+  TAB_NAME_RESULTADOS: 'RESULTADOS', 
+  TAB_NAME_REGISTRO:   'Hoja 1',     
 
-  COL_CARNET: 1,           // Column A in Registry
-  COL_CODIGO_CARRERA: 5,   // Column E in Registry
-  COL_YA_VOTO: 9,          // Column I in Registry
+  COL_CARNET: 1,
+  COL_CODIGO_CARRERA: 5,
+  COL_YA_VOTO: 9,
 
-  // Keywords to identify sections
-  KEYWORD_CARNET:     "CARNET",                   // To find the Student ID question
-  KEYWORD_FEDERACION: ["FEDERACIÓN", "FCE", "FCEUSB"], 
-  KEYWORD_CENTRO:     ["CENTRO", "VOTACIÓN", "CARRERA"], 
+  COL_RES_NOMBRES: 2,      // Columna B: Donde están los nombres de candidatos
+  COL_RES_CONTEO: 3,       // Columna C: Donde se suman los votos
+  COL_RES_ANCLAJE: 6,      // Columna F: Donde están los códigos (- 0800 -)
 
-  ROW_LIMIT_FCE: 15,       
-  COL_OPCIONES: 2,         // Column B in Results
-  COL_CONTEO: 3,           // Column C in Results
+  KEY_CARNET: "CARNET",
+  KEY_SEDE:   "SEDE",      // Pregunta "¿A qué sede perteneces?"
+  KEY_FED:    ["FEDERACIÓN", "FCE", "FCEUSB", "JD-FCEUSB"], 
+  KEY_CENTRO: ["CENTRO", "VOTACIÓN", "CARRERA", "ELECCIÓN"], 
+
+  HEADER_FCE:     "JD-FCEUSB",             // Título de la tabla Federación
+  HEADER_LITORAL: "JD-CE Sede De Litoral", // Título exacto de la tabla de Litoral
 };
 
-// MAIN LOGIC
-
+/**
+ * ============================================================================
+ * 2. LÓGICA PRINCIPAL DEL SISTEMA
+ * ============================================================================
+ */
 function onFormSubmit(e) {
   try {
-    const response = e.response;
-    const itemResponses = response.getItemResponses();
+    const itemResponses = e.response.getItemResponses();
     
-    // 1. FIND STUDENT ID (Search for the question titled "Carnet")
-    let carnetInput = "";
-    
+    // --- PASO 1: LEER DATOS DEL ESTUDIANTE ---
+    let carnet = "";
+    let sede = "";
+
     for (let i = 0; i < itemResponses.length; i++) {
       const titulo = itemResponses[i].getItem().getTitle().toUpperCase();
-      if (titulo.includes(CONFIG.KEYWORD_CARNET)) {
-        carnetInput = itemResponses[i].getResponse().trim();
-        break;
-      }
+      const respuesta = itemResponses[i].getResponse();
+
+      if (titulo.includes(CONFIG.KEY_CARNET)) carnet = respuesta.trim();
+      if (titulo.includes(CONFIG.KEY_SEDE))   sede = respuesta.toUpperCase();
     }
 
-    if (carnetInput === "") {
-      Logger.log("[ERROR] 'Carnet' question not found in form responses.");
-      return;
-    }
+    if (!carnet) { Logger.log("[ERROR] Falta Carnet."); return; }
+    if (!sede)   { sede = "SARTENEJAS"; Logger.log("[AVISO] Sede no detectada, asumiendo Sartenejas."); }
 
-    Logger.log(`[START] Processing Vote for ID: ${carnetInput}`);
+    Logger.log(`[PROCESANDO] Carnet: ${carnet} | Sede: ${sede}`);
 
-    // 2. VALIDATE USER IN REGISTRY
-    const docRegistro = SpreadsheetApp.openById(CONFIG.SPREADSHEET_REGISTRO_ID);
-    const sheetRegistro = docRegistro.getSheetByName(CONFIG.SHEET_NAME_REGISTRO);
+    // --- PASO 2: ELEGIR EL REGISTRO ADECUADO ---
+    let idRegistro = (sede.includes("LITORAL")) ? CONFIG.ID_REGISTRO_LITORAL : CONFIG.ID_REGISTRO_SARTENEJAS;
+    let esLitoral = sede.includes("LITORAL");
 
-    // Search for ID in Column A
-    const finder = sheetRegistro.getRange(1, CONFIG.COL_CARNET, sheetRegistro.getLastRow(), 1)
-      .createTextFinder(carnetInput).matchEntireCell(true);
+    // --- PASO 3: VALIDAR AL ESTUDIANTE EN LA BASE DE DATOS ---
+    const sheetReg = SpreadsheetApp.openById(idRegistro).getSheetByName(CONFIG.TAB_NAME_REGISTRO);
+
+    const finder = sheetReg.getRange(1, CONFIG.COL_CARNET, sheetReg.getLastRow(), 1)
+      .createTextFinder(carnet).matchEntireCell(true);
     const result = finder.findNext();
 
     if (!result) {
-      Logger.log(`[ERROR] ID ${carnetInput} not found in registry.`);
+      Logger.log(`[RECHAZADO] Carnet ${carnet} no encontrado en registro de ${sede}.`);
       return;
     }
 
-    const rowIndex = result.getRow();
+    const rowUser = result.getRow();
 
-    // Check for duplicate vote
-    const yaVotoCell = sheetRegistro.getRange(rowIndex, CONFIG.COL_YA_VOTO);
-    if (yaVotoCell.getValue() === "SI") {
-      Logger.log(`[DUPLICATE] ID ${carnetInput} already voted.`);
+    const cellYaVoto = sheetReg.getRange(rowUser, CONFIG.COL_YA_VOTO);
+    if (cellYaVoto.getValue() === "SI") {
+      Logger.log(`[FRAUDE] El usuario ${carnet} ya votó.`);
       return;
     }
 
-    // Determine eligibility (Student Center vs Basic Cycle)
-    const codigoCarrera = sheetRegistro.getRange(rowIndex, CONFIG.COL_CODIGO_CARRERA).getValue().toString();
-    const esCicloBasico = (codigoCarrera === "0000" || codigoCarrera.toUpperCase().includes("BASIC")); 
-    const puedeVotarCentro = !esCicloBasico;
+    let puedeVotarCentro = true;
+    let codigoAnclaje = ""; 
+    let columnaBusqueda = 0;
 
-    Logger.log(`ID verified. Major: ${codigoCarrera}. Center Eligible: ${puedeVotarCentro}`);
+    if (esLitoral) {
+        puedeVotarCentro = true;
+        codigoAnclaje = CONFIG.HEADER_LITORAL;
+        columnaBusqueda = CONFIG.COL_RES_NOMBRES; 
+    } else {
+        const rawCode = sheetReg.getRange(rowUser, CONFIG.COL_CODIGO_CARRERA).getValue().toString();
+        let esBasico = (rawCode === "0" || rawCode === "00" || rawCode.toUpperCase().includes("BASIC"));
+        puedeVotarCentro = !esBasico;
+        codigoAnclaje = rawCode;
+        columnaBusqueda = CONFIG.COL_RES_ANCLAJE;
+    }
 
-    // 3. PROCESS VOTE (WITH LOCK)
+    // --- PASO 4: REGISTRAR EL VOTO ---
     var lock = LockService.getDocumentLock();
-    if (!lock.tryLock(10000)) return; 
+    if (!lock.tryLock(10000)) { Logger.log("[ERROR] Servidor ocupado."); return; }
 
     try {
-      // Mark user as voted
-      yaVotoCell.setValue("SI");
+      // 1. Quemar el voto (Marcar SI)
+      cellYaVoto.setValue("SI");
 
-      const docResultados = SpreadsheetApp.openById(CONFIG.SPREADSHEET_RESULTADOS_ID);
-      const sheetResultados = docResultados.getSheetByName(CONFIG.SHEET_NAME_RESULTADOS);
+      // 2. Abrir Excel de Resultados
+      const sheetRes = SpreadsheetApp.openById(CONFIG.ID_RESULTADOS).getSheetByName(CONFIG.TAB_NAME_RESULTADOS);
 
-      // Iterate over all responses to find votes
       for (let i = 0; i < itemResponses.length; i++) {
         const item = itemResponses[i];
         const titulo = item.getItem().getTitle().toUpperCase();
-        const respuesta = item.getResponse();
+        const votoOriginal = item.getResponse();
 
-        // Case A: Federation
-        if (contienePalabraClave(titulo, CONFIG.KEYWORD_FEDERACION)) {
-          incrementarVoto(sheetResultados, respuesta, 1, CONFIG.ROW_LIMIT_FCE);
+        const votoLimpio = normalizarVoto(votoOriginal);
+
+        // -> SI ES FEDERACIÓN
+        if (containsAny(titulo, CONFIG.KEY_FED)) {
+          smartVoteCount(sheetRes, CONFIG.HEADER_FCE, votoLimpio, CONFIG.COL_RES_NOMBRES, 25); 
         }
-        
-        // Case B: Student Center
-        else if (contienePalabraClave(titulo, CONFIG.KEYWORD_CENTRO)) {
+
+        // -> SI ES CENTRO DE ESTUDIANTES
+        else if (containsAny(titulo, CONFIG.KEY_CENTRO)) {
           if (puedeVotarCentro) {
-            // Find the major block and search within it
-            const filaInicioCarrera = buscarInicioBloqueCarrera(sheetResultados, codigoCarrera);
-            if (filaInicioCarrera > 0) {
-              incrementarVoto(sheetResultados, respuesta, filaInicioCarrera, filaInicioCarrera + 25);
-            }
+            smartVoteCount(sheetRes, codigoAnclaje, votoLimpio, columnaBusqueda, 60);
           }
         }
       }
 
       SpreadsheetApp.flush();
-      Logger.log("[SUCCESS] Vote registered.");
+      Logger.log("[EXITO] Voto registrado correctamente.");
 
-    } catch (err) {
-      Logger.log("[CRITICAL] Error saving data: " + err);
+    } catch (e) {
+      Logger.log("[CRITICO] Error escribiendo datos: " + e);
     } finally {
       lock.releaseLock();
     }
 
-  } catch (e) {
-    Logger.log("[FATAL] " + e);
+  } catch (error) {
+    Logger.log("[FATAL] Error general: " + error);
   }
 }
 
 /**
- * HELPERS
+ * ============================================================================
+ * 3. FUNCIONES AUXILIARES (HERRAMIENTAS)
+ * ============================================================================
  */
 
-function contienePalabraClave(texto, palabras) {
-  return palabras.some(palabra => texto.includes(palabra));
-}
-
-function buscarInicioBloqueCarrera(sheet, codigo) {
-  const finder = sheet.getRange(CONFIG.ROW_LIMIT_FCE, CONFIG.COL_OPCIONES, sheet.getLastRow(), 1)
-    .createTextFinder(codigo);
-  const result = finder.findNext();
-  return result ? result.getRow() : -1;
-}
-
-function incrementarVoto(sheet, textoBusqueda, filaInicio, filaFin) {
-  if (!textoBusqueda) return;
-
-  const numFilas = filaFin - filaInicio + 1;
-  const rangoBusqueda = sheet.getRange(filaInicio, CONFIG.COL_OPCIONES, numFilas, 1);
+function normalizeVote(voto) {
+  if (!voto) return "";
+  if (voto.toUpperCase().includes("BLANCO")) return "Blanco";
   
-  const finder = rangoBusqueda.createTextFinder(textoBusqueda).matchEntireCell(true);
-  const celdaNombre = finder.findNext();
+  const matchFCE = voto.match(/\(Plancha (.*?)\)/); 
+  if (matchFCE && matchFCE[1]) return matchFCE[1].trim();
 
-  if (celdaNombre) {
-    const celdaConteo = sheet.getRange(celdaNombre.getRow(), CONFIG.COL_CONTEO);
-    const valor = celdaConteo.getValue();
-    celdaConteo.setValue((typeof valor === 'number' ? valor : 0) + 1);
+  // Limpia "Plancha X" al inicio (Centros)
+  if (voto.startsWith("Plancha ")) return voto.substring(8).trim(); 
+
+  return voto.trim();
+}
+
+// Verifica palabras clave
+function containsAny(str, keywords) {
+  return keywords.some(key => str.includes(key));
+}
+
+function smartVoteCount(sheet, anchorText, candidateName, anchorColIndex, searchDepth) {
+  if (!candidateName) return;
+
+  // 1. Busca el TÍTULO DE SECCIÓN (Ancla)
+  const finder = sheet.getRange(1, anchorColIndex, sheet.getLastRow(), 1)
+    .createTextFinder(anchorText); 
+  const anchorCell = finder.findNext();
+
+  if (!anchorCell) {
+    Logger.log(`[ALERTA] Bloque no encontrado: ${anchorText}`);
+    return;
   }
 
+  const startRow = anchorCell.getRow();
+  
+  // 2. Busca al CANDIDATO debajo
+  const searchRange = sheet.getRange(startRow, CONFIG.COL_RES_NOMBRES, searchDepth, 1);
+  const candidateFinder = searchRange.createTextFinder(candidateName).matchEntireCell(true);
+  const candidateCell = candidateFinder.findNext();
+
+  if (candidateCell) {
+    // 3. Suma +1
+    const cellCount = sheet.getRange(candidateCell.getRow(), CONFIG.COL_RES_CONTEO);
+    const val = cellCount.getValue();
+    cellCount.setValue((typeof val === 'number' ? val : 0) + 1);
+    Logger.log(` +1 a ${candidateName}`);
+  } else {
+    Logger.log(`[ALERTA] Candidato '${candidateName}' no encontrado en bloque '${anchorText}'`);
+  }
 }
