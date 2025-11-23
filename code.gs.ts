@@ -17,7 +17,7 @@ const CONFIG = {
   // Columnas de resultados
   COL_RES_NOMBRES: 2,      // B: Nombres de planchas/candidatos
   COL_RES_TITULOS: 3,      // C: Encabezados de bloques (Federación/Litoral/otros)
-  COL_RES_ANCLAJE: 10,     // J: Códigos de carrera para centros de Sartenejas y Litoral
+  COL_RES_ANCLAJE: 10,     // J: Códigos de carrera para centros de Sartenejas
 
   // Palabras clave base
   KEY_CARNET: "CARNET",
@@ -26,7 +26,6 @@ const CONFIG = {
   // Variantes de encabezado reconocidas para Federación
   HEADERS_FCE_VARIANTS: [
     "JD-FCEUSB",
-    "JDC-FCEUSB",
     "FEDERACION FCEUSB",
     "FEDERACION",
     "FCEUSB"
@@ -34,7 +33,7 @@ const CONFIG = {
 
   // Encabezado para Litoral (y variantes)
   HEADERS_LITORAL_VARIANTS: [
-    "JD-CE SEDE DE LITORAL",
+    "JD-CE SEDE DEL LITORAL",
     "CE LITORAL",
     "LITORAL"
   ],
@@ -52,7 +51,7 @@ const CONFIG = {
     },
     LITORAL: {
       "PRESIDENCIA": 3,
-      "VICE": 4,
+      "VICEPRESIDENCIA": 4,
       "GENERAL": 5,
       "ACTAS": 6,
       "TESORERIA": 7,
