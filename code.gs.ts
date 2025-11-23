@@ -4,9 +4,9 @@
  * ============================================================================
  */
 const CONFIG = {
-  ID_RESULTADOS:          '1iR4t6ndPxWfuPj-o_pDPCd7VQ0WRxcAn', // Excel Público (Resultados)
-  ID_REGISTRO_SARTENEJAS: '1B1EuAculgwXf_aL3m822_qVv86o2ufzd', // Registro Privado Sartenejas
-  ID_REGISTRO_LITORAL:    '1EOBIQM0GG7s_mN7xsJrlhkw45pNLIwCV', // Registro Privado Litoral
+  ID_RESULTADOS:          '1CNc-j0YrQdJDhjf0IxzAsEYfKNwfz1CySCcFJXO-ViU', // Excel Público (Resultados)
+  ID_REGISTRO_SARTENEJAS: '11uE25RmubL_68IDu0dyabQOFMymoYPqx224D2PiJmuo', // Registro Privado Sartenejas
+  ID_REGISTRO_LITORAL:    '1tJNdVHX16ZCVn0AWgJNydQborVJ2__s3bwyFz1_2nsw', // Registro Privado Litoral
 
   TAB_NAME_RESULTADOS: 'RESULTADOS', 
   TAB_NAME_REGISTRO:   'Hoja 1',     
@@ -193,3 +193,4 @@ function smartVoteCount(sheet, anchorText, candidateName, anchorColIndex, search
     Logger.log(`[ALERTA] Candidato '${candidateName}' no encontrado en bloque '${anchorText}'`);
   }
 }
+
