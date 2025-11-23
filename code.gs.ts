@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 1. CONFIGURACIÓN GENERAL (MODIFICAR SOLO ESTA SECCIÓN)
+ * 1. CONFIGURACIÓN GENERAL
  * ============================================================================
  */
 const CONFIG = {
@@ -13,12 +13,13 @@ const CONFIG = {
 
   COL_CARNET: 1,
   COL_CODIGO_CARRERA: 5,
-  COL_YA_VOTO: 9,
+  COL_YA_VOTO: 10,
 
-  COL_RES_NOMBRES: 2,      // Columna B: Donde están los nombres de candidatos
-  COL_RES_CONTEO: 3,       // Columna C: Donde se suman los votos
-  COL_RES_ANCLAJE: 6,      // Columna F: Donde están los códigos (- 0800 -)
-
+  COL_RES_NOMBRES: 2,      // Col B: Candidatos (Planchas)
+  COL_RES_CONTEO: 3,       // Col C: AQUÍ SE ESCRIBE EL VOTO (Casilla Presidencia)
+  COL_RES_TITULOS: 3,      // Col C: Aquí busca los títulos grandes ("JD-FCEUSB")
+  COL_RES_ANCLAJE: 10,
+  
   KEY_CARNET: "CARNET",
   KEY_SEDE:   "SEDE",      // Pregunta "¿A qué sede perteneces?"
   KEY_FED:    ["FEDERACIÓN", "FCE", "FCEUSB", "JD-FCEUSB"], 
@@ -110,7 +111,7 @@ function onFormSubmit(e) {
         const titulo = item.getItem().getTitle().toUpperCase();
         const votoOriginal = item.getResponse();
 
-        const votoLimpio = normalizarVoto(votoOriginal);
+        const votoLimpio = normalizeVote(votoOriginal);
 
         // -> SI ES FEDERACIÓN
         if (containsAny(titulo, CONFIG.KEY_FED)) {
@@ -193,4 +194,3 @@ function smartVoteCount(sheet, anchorText, candidateName, anchorColIndex, search
     Logger.log(`[ALERTA] Candidato '${candidateName}' no encontrado en bloque '${anchorText}'`);
   }
 }
-
