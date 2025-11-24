@@ -1,5 +1,5 @@
 /* ==========================================================================
-   SISTEMA DE VOTACIONES USB 2025 - VERSIÓN "EVIDENCIA CSV"
+   SISTEMA DE VOTACIONES USB 2025
    ==========================================================================
 */
 
@@ -304,3 +304,4 @@ function normalizeStr(val) {
   if (!val) return "";
   return String(val).toUpperCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
 }
+
