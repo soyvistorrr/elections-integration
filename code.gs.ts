@@ -1,28 +1,28 @@
 /* ==========================================================================
    SISTEMA DE VOTACIONES USB 2025
    ==========================================================================
-*/
+ */
 
 const CONFIG = {
-  // --- CREDENCIALES ---
   ID_RESULTADOS:          '1CNc-j0YrQdJDhjf0IxzAsEYfKNwfz1CySCcFJXO-ViU',
   ID_REGISTRO_SARTENEJAS: '11uE25RmubL_68IDu0dyabQOFMymoYPqx224D2PiJmuo',
   ID_REGISTRO_LITORAL:    '1tJNdVHX16ZCVn0AWgJNydQborVJ2__s3bwyFz1_2nsw',
 
-  // --- HOJAS ---
   TAB_NAME_REGISTRO:   'Hoja 1',      
   TAB_NAME_RESULTADOS: 'RESULTADOS',  
 
-  // --- COLUMNAS FORMULARIO ---
-  COL_CARNET: 1,           
-  COL_CODIGO_CARRERA: 5,   
-  COL_YA_VOTO_SART: 10,    
-  COL_YA_VOTO_LIT: 7,      
+  // --- CONFIGURACIÓN DE COLUMNAS (DOBLE CHEQUEO) ---
+  COL_CARNET: 1,           // A
+  COL_CHECK_BASICO: 5,     // E <--- FILTRO DE SEGURIDAD (¿Es básico?)
+  COL_CODIGO_CARRERA: 9,   // I <--- CÓDIGO REAL (¿Qué carrera le toca?)
+  
+  COL_YA_VOTO_SART: 10,    // J
+  COL_YA_VOTO_LIT: 7,      // G
 
-  // --- COLUMNAS RESULTADOS (BASADO EN TU CSV) ---
-  COL_BUSQUEDA_TITULOS: 3, // Columna C: Donde dicen "0600 - Ing..."
-  COL_BUSQUEDA_NOMBRES: 2, // Columna B: Donde dicen "PIC26", "Blanco"
-  COL_CONTEO_DESTINO: 3,   // Columna C: Donde se pone el número
+  // --- ESTRUCTURA DE RESULTADOS ---
+  COL_BUSQUEDA_TITULOS: 3, // Columna C (Títulos y Conteos)
+  COL_BUSQUEDA_NOMBRES: 2, // Columna B (Nombres)
+  COL_CONTEO_DESTINO: 3,   // Columna C (Suma)
 
   COL_RES_CONTEO_INVALIDO: 11, // K
 
@@ -30,16 +30,20 @@ const CONFIG = {
   KEY_SEDE:   "SEDE",
   TXT_INVALIDOS: "Votos CE No Validos", 
 
-  ANCHORS_LITORAL: ["CENTRO DE ESTUDIANTES DEL LITORAL", "SEDE DEL LITORAL", "LITORAL"],
+  ANCHORS_LITORAL: [
+    "CENTRO DE ESTUDIANTES DEL LITORAL", 
+    "SEDE DEL LITORAL", 
+    "LITORAL",
+    "CAMINO AMARILLO"
+  ],
+  
   ANCHORS_FCE: ["JD-FCEUSB", "FEDERACION", "FCEUSB", "FCE"],
 
   MAPA_FCE: {
     "PRESIDENCIA": 3, "PRESI": 3, "GENERAL": 5, "GEN": 5,
     "SERVICIOS": 7, "SERV": 7, "ACADEMICA": 9, "ACAD": 9,
     "FINANZAS": 11, "FINAN": 11, "DEFAULT": 3
-  },
-
-  CODIGOS_FIX: { "4100": "0600", "200":  "0200" }
+  }
 };
 
 function onFormSubmit(e) {
@@ -50,7 +54,7 @@ function onFormSubmit(e) {
     const itemResponses = e.response ? e.response.getItemResponses() : [];
     if (!itemResponses.length) return;
 
-    // --- 1. LECTURA ---
+    // --- 1. DATOS ---
     let carnetInput = "";
     let esLitoral = false;
 
@@ -66,7 +70,7 @@ function onFormSubmit(e) {
 
     if (!carnetInput) return;
 
-    // --- 2. VALIDACIÓN ---
+    // --- 2. REGISTRO ---
     const idRegistro = esLitoral ? CONFIG.ID_REGISTRO_LITORAL : CONFIG.ID_REGISTRO_SARTENEJAS;
     const ssRegistro = SpreadsheetApp.openById(idRegistro);
     let sheetRegistro = ssRegistro.getSheetByName(CONFIG.TAB_NAME_REGISTRO);
@@ -76,23 +80,38 @@ function onFormSubmit(e) {
     if (filaUsuario === -1) { Logger.log("Carnet no encontrado"); return; }
 
     const colYaVoto = esLitoral ? CONFIG.COL_YA_VOTO_LIT : CONFIG.COL_YA_VOTO_SART;
+    if (filaUsuario > sheetRegistro.getLastRow()) return;
+    
     const celdaYaVoto = sheetRegistro.getRange(filaUsuario, colYaVoto);
     if (normalizeStr(celdaYaVoto.getValue()) === "SI") return;
 
-    // --- 3. CARRERA ---
+    // --- 3. LÓGICA DE SEGURIDAD ---
     let codigoCarrera = "";
     let puedeVotarCentro = true;
 
     if (esLitoral) {
       codigoCarrera = "LITORAL"; 
     } else {
-      const rawCode = String(sheetRegistro.getRange(filaUsuario, CONFIG.COL_CODIGO_CARRERA).getValue());
-      const codeClean = normalizeStr(rawCode);
-      puedeVotarCentro = !(codeClean === "0" || codeClean === "00" || codeClean.includes("BASIC"));
-      codigoCarrera = formatearCodigo(rawCode);
+      // A) PASO 1: VERIFICAR SI ES BÁSICO EN COLUMNA E (5)
+      const valorBasico = String(sheetRegistro.getRange(filaUsuario, CONFIG.COL_CHECK_BASICO).getValue());
+      const basicoClean = normalizeStr(valorBasico);
+
+      // Si Col E es "0", "00" o "BASIC", es básico y NO debe votar centro
+      const esBasico = (basicoClean === "0" || basicoClean === "00" || basicoClean.includes("BASIC") || basicoClean.includes("CICLO"));
+
+      if (esBasico) {
+         puedeVotarCentro = false; // BLOQUEADO
+         Logger.log(`[SEGURIDAD] Estudiante detectado como Ciclo Básico (Col E="${valorBasico}"). Voto de carrera deshabilitado.`);
+      } else {
+         // B) PASO 2: SI NO ES BÁSICO, LEER LA CARRERA REAL EN COLUMNA I (9)
+         const rawCode = String(sheetRegistro.getRange(filaUsuario, CONFIG.COL_CODIGO_CARRERA).getValue());
+         codigoCarrera = formatearCodigoInteligente(rawCode);
+         puedeVotarCentro = true; // HABILITADO
+         Logger.log(`[OK] Estudiante de Carrera. Código asignado (Col I): ${rawCode} -> ${codigoCarrera}`);
+      }
     }
 
-    // --- 4. RESULTADOS ---
+    // --- 4. PROCESAR ---
     const ssResultados = SpreadsheetApp.openById(CONFIG.ID_RESULTADOS);
     let sheetResultados = ssResultados.getSheetByName(CONFIG.TAB_NAME_RESULTADOS);
     if (!sheetResultados) sheetResultados = ssResultados.getSheets()[0];
@@ -112,32 +131,30 @@ function onFormSubmit(e) {
       else if (tituloNorm.includes("FEDERACION") || tituloNorm.includes("FCE")) tipo = "FCE";
       else if (tituloNorm.includes("CENTRO") || tituloNorm.includes("VOTACION") || tituloNorm.includes("ELECCION")) tipo = "CENTRO";
 
-      // A) FCE
+      // 1. VOTO FCE (Todos votan)
       if (tipo === "FCE") {
         const colDestino = determinarColumnaFCE(tituloNorm);
-        const bloqueFCE = encontrarBloque(sheetResultados, CONFIG.ANCHORS_FCE, CONFIG.COL_BUSQUEDA_TITULOS); // Busca título en C
+        const bloqueFCE = encontrarBloque(sheetResultados, CONFIG.ANCHORS_FCE, CONFIG.COL_BUSQUEDA_TITULOS); 
         if (bloqueFCE) registrarVotoFCE(sheetResultados, bloqueFCE.getRow(), votoLimpio, colDestino);
       }
-
-      // B) LITORAL
+      
+      // 2. VOTO LITORAL (Solo sede Litoral)
       else if (tipo === "LITORAL" && esLitoral) {
-        // Busca título en Columna C
         const bloqueLit = encontrarBloque(sheetResultados, CONFIG.ANCHORS_LITORAL, CONFIG.COL_BUSQUEDA_TITULOS);
         if (bloqueLit) registrarVotoCentro(sheetResultados, bloqueLit.getRow(), votoLimpio);
       }
-
-      // C) CENTRO SARTENEJAS
+      
+      // 3. VOTO SARTENEJAS (Solo si paso la seguridad de Básico)
       else if (tipo === "CENTRO" && !esLitoral) {
         if (puedeVotarCentro) {
-          // Busca código en Columna C
           const bloqueCentro = encontrarBloquePorCodigo(sheetResultados, codigoCarrera, CONFIG.COL_BUSQUEDA_TITULOS);
-          
           if (bloqueCentro) {
             registrarVotoCentro(sheetResultados, bloqueCentro.getRow(), votoLimpio);
           } else {
-            Logger.log(`[ALERTA] Bloque Carrera '${codigoCarrera}' no encontrado en Columna C.`);
+            Logger.log(`[ALERTA] No se encontró bloque para el código '${codigoCarrera}'.`);
           }
         } else {
+          Logger.log(`[INFO] Intento de voto de Ciclo Básico en Carrera. Registrando como inválido.`);
           registrarInvalido(sheetResultados);
         }
       }
@@ -154,38 +171,31 @@ function onFormSubmit(e) {
 }
 
 /* ==========================================
-   LÓGICA ADAPTADA AL CSV
+   FUNCIONES AUXILIARES
    ========================================== */
 
 function registrarVotoCentro(sheet, filaTitulo, nombreCandidato) {
-  // Buscamos nombres en COLUMNA B (2), empezando una fila debajo del título
-  const rangoNombres = sheet.getRange(filaTitulo + 1, CONFIG.COL_BUSQUEDA_NOMBRES, 15, 1);
-  // Verificamos frenos en COLUMNA C (3)
-  const rangoTitulos = sheet.getRange(filaTitulo + 1, CONFIG.COL_BUSQUEDA_TITULOS, 15, 1);
+  const rangoNombres = sheet.getRange(filaTitulo + 1, CONFIG.COL_BUSQUEDA_NOMBRES, 20, 1);
+  const rangoTitulos = sheet.getRange(filaTitulo + 1, CONFIG.COL_BUSQUEDA_TITULOS, 20, 1);
   
   const valsNombres = rangoNombres.getValues();
-  const valsTitulos = rangoTitulos.getValues(); // Aquí miramos si hay texto (otro título)
+  const valsTitulos = rangoTitulos.getValues(); 
 
   const buscado = normalizeStr(nombreCandidato);
   const esBlanco = buscado.includes("BLANCO");
 
-  Logger.log(`   > Buscando '${nombreCandidato}' bajo fila ${filaTitulo}...`);
-
-  for (let i = 0; i < 15; i++) {
+  for (let i = 0; i < 20; i++) {
     const nombreEnB = normalizeStr(valsNombres[i][0]);
-    const tituloEnC = String(valsTitulos[i][0]).trim(); // Verificar si hay título nuevo
+    const celdaC = valsTitulos[i][0];
+    const strC = String(celdaC).trim();
 
-    // 1. FRENO:
-    if (tituloEnC.length > 3 && (tituloEnC.includes("-") || tituloEnC.match(/\d/))) {
-       // OJO: Ignoramos si es un número simple (porque podría ser un voto ya existente de otro candidato)
-       // Solo frenamos si parece TEXTO de título.
-       if (isNaN(tituloEnC)) { 
-          Logger.log(`   [FRENO] Título detectado en Col C fila relativa ${i}: ${tituloEnC}`);
-          break; 
-       }
-    }
+    // FRENO INTELIGENTE (Ignora números de votos previos)
+    const esNumero = !isNaN(parseFloat(celdaC)) && isFinite(celdaC);
+    const esTituloLargo = strC.length > 5 && (strC.includes("INGENIERIA") || strC.includes("LICENCIATURA") || strC.includes("TSU") || strC.includes("ARQUITECTURA"));
+    const esCodigo = strC.includes("-") && /\d/.test(strC) && strC.length > 5;
 
-    // 2. MATCH
+    if (!esNumero && (esTituloLargo || esCodigo)) break; 
+
     let match = false;
     if (esBlanco) {
       if (nombreEnB.includes("BLANCO")) match = true;
@@ -196,56 +206,32 @@ function registrarVotoCentro(sheet, filaTitulo, nombreCandidato) {
     }
 
     if (match) {
-      // Escribir en Columna C (CONFIG.COL_CONTEO_DESTINO), misma fila
       const celda = sheet.getRange(filaTitulo + 1 + i, CONFIG.COL_CONTEO_DESTINO);
       const val = Number(celda.getValue()) || 0;
       celda.setValue(val + 1);
-      Logger.log(`   [OK] Voto sumado en Col C, fila ${filaTitulo + 1 + i}`);
       return;
     }
   }
-  Logger.log(`   [ERROR] No se encontró '${nombreCandidato}' en el bloque.`);
-}
-
-// Función específica para FCE porque sus columnas de destino varían
-function registrarVotoFCE(sheet, filaTitulo, nombreCandidato, colDestino) {
-  const rangoNombres = sheet.getRange(filaTitulo + 1, CONFIG.COL_BUSQUEDA_NOMBRES, 20, 1); // Nombres en B
-  const vals = rangoNombres.getValues();
-  const buscado = normalizeStr(nombreCandidato);
-
-  for (let i = 0; i < vals.length; i++) {
-    const leido = normalizeStr(vals[i][0]);
-    // Freno simple por vacío
-    if (leido === "" && i > 2 && normalizeStr(vals[i+1][0]) === "") break;
-
-    if (leido && (leido === buscado || leido.includes(buscado) || buscado.includes(leido))) {
-      const celda = sheet.getRange(filaTitulo + 1 + i, colDestino);
-      celda.setValue((Number(celda.getValue()) || 0) + 1);
-      return;
-    }
-  }
-}
-
-// --- UTILIDADES ---
-function formatearCodigo(raw) {
-  let s = String(raw || "").trim().toUpperCase();
-  if (CONFIG.CODIGOS_FIX[s]) return CONFIG.CODIGOS_FIX[s];
-  let nums = s.match(/\d+/g);
-  let code = nums ? nums.join('') : "";
-  if (CONFIG.CODIGOS_FIX[code]) return CONFIG.CODIGOS_FIX[code];
-  if (/^0?50[0-9]/.test(code)) return "050X";
-  if (code.length > 0 && code.length < 4) code = code.padStart(4, '0');
-  return code;
 }
 
 function limpiarVoto(votoRaw) {
   const v = String(votoRaw || "").trim();
-  let vLimpio = v.replace(/^PLANCHA[\s:\-]+/i, ""); 
+  let vLimpio = v.replace(/^(PLANCHA|VOTO|VOTACION)[\s:\-]+/i, ""); 
   const vNorm = normalizeStr(vLimpio);
   if (vNorm.includes("BLANCO")) return "Blanco";
   const parenMatch = v.match(/\((?:\s*Plancha\s*[:\-]?\s*)?(.+?)\s*\)/i);
   if (parenMatch && parenMatch[1].length > 1) return normalizeStr(parenMatch[1]);
   return vNorm;
+}
+
+function formatearCodigoInteligente(raw) {
+  let s = String(raw || "").trim();
+  let match = s.match(/\d+/);
+  if (!match) return ""; 
+  let code = match[0];
+  if (code === "4100") return "0600";
+  if (/^0?50\d/.test(code)) return "050X";
+  return code.padStart(4, '0');
 }
 
 function buscarUsuarioManual(sheet, carnetBuscado) {
@@ -282,6 +268,21 @@ function encontrarBloquePorCodigo(sheet, codigo, colIndex) {
   return null;
 }
 
+function registrarVotoFCE(sheet, filaTitulo, nombreCandidato, colDestino) {
+  const rangoNombres = sheet.getRange(filaTitulo + 1, CONFIG.COL_BUSQUEDA_NOMBRES, 25, 1); 
+  const vals = rangoNombres.getValues();
+  const buscado = normalizeStr(nombreCandidato);
+  for (let i = 0; i < vals.length; i++) {
+    const leido = normalizeStr(vals[i][0]);
+    if (leido === "" && i > 2 && normalizeStr(vals[i+1][0]) === "") break;
+    if (leido && (leido === buscado || leido.includes(buscado) || buscado.includes(leido))) {
+      const celda = sheet.getRange(filaTitulo + 1 + i, colDestino);
+      celda.setValue((Number(celda.getValue()) || 0) + 1);
+      return;
+    }
+  }
+}
+
 function determinarColumnaFCE(titulo) {
   const t = normalizeStr(titulo);
   for (let key in CONFIG.MAPA_FCE) {
@@ -291,7 +292,6 @@ function determinarColumnaFCE(titulo) {
 }
 
 function registrarInvalido(sheet) {
-  // Busca texto exacto en cualquier lado de Col C
   const finder = sheet.getRange(1, CONFIG.COL_BUSQUEDA_TITULOS, sheet.getLastRow(), 1).createTextFinder(CONFIG.TXT_INVALIDOS);
   const match = finder.findNext();
   if (match) {
@@ -304,4 +304,3 @@ function normalizeStr(val) {
   if (!val) return "";
   return String(val).toUpperCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
 }
-
