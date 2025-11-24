@@ -1,431 +1,306 @@
-/* 1. CONFIGURACIÓN GENERAL */
+/* ==========================================================================
+   SISTEMA DE VOTACIONES USB 2025 - VERSIÓN "EVIDENCIA CSV"
+   ==========================================================================
+*/
+
 const CONFIG = {
-  // IDs de tus hojas
+  // --- CREDENCIALES ---
   ID_RESULTADOS:          '1CNc-j0YrQdJDhjf0IxzAsEYfKNwfz1CySCcFJXO-ViU',
   ID_REGISTRO_SARTENEJAS: '11uE25RmubL_68IDu0dyabQOFMymoYPqx224D2PiJmuo',
   ID_REGISTRO_LITORAL:    '1tJNdVHX16ZCVn0AWgJNydQborVJ2__s3bwyFz1_2nsw',
 
-  // Nombres de pestañas
-  TAB_NAME_RESULTADOS: 'RESULTADOS',
-  TAB_NAME_REGISTRO:   'Hoja 1',
+  // --- HOJAS ---
+  TAB_NAME_REGISTRO:   'Hoja 1',      
+  TAB_NAME_RESULTADOS: 'RESULTADOS',  
 
-  // Columnas de registro
-  COL_CARNET: 1,           // A
-  COL_CODIGO_CARRERA: 5,   // E
-  COL_YA_VOTO: 10,         // J 
-  COL_YA_VOTO_LITORAL: 7,  // G
+  // --- COLUMNAS FORMULARIO ---
+  COL_CARNET: 1,           
+  COL_CODIGO_CARRERA: 5,   
+  COL_YA_VOTO_SART: 10,    
+  COL_YA_VOTO_LIT: 7,      
 
-  // Columnas de resultados
-  COL_RES_NOMBRES: 2,      // B: Nombres de planchas/candidatos
-  COL_RES_TITULOS: 3,      // C: Encabezados de bloques (Federación/Litoral/otros)
-  COL_RES_ANCLAJE: 10,     // J: Códigos de carrera para centros de Sartenejas
+  // --- COLUMNAS RESULTADOS (BASADO EN TU CSV) ---
+  COL_BUSQUEDA_TITULOS: 3, // Columna C: Donde dicen "0600 - Ing..."
+  COL_BUSQUEDA_NOMBRES: 2, // Columna B: Donde dicen "PIC26", "Blanco"
+  COL_CONTEO_DESTINO: 3,   // Columna C: Donde se pone el número
 
-  // Palabras clave base
+  COL_RES_CONTEO_INVALIDO: 11, // K
+
   KEY_CARNET: "CARNET",
   KEY_SEDE:   "SEDE",
+  TXT_INVALIDOS: "Votos CE No Validos", 
 
-  // Variantes de encabezado reconocidas para Federación (se probarán todas)
-  HEADERS_FCE_VARIANTS: [
-    "JD-FCEUSB",
-    "JDC-FCEUSB",     // por si aparece esta variante en alguna hoja
-    "FEDERACION FCEUSB",
-    "FEDERACION",
-    "FCEUSB"
-  ],
+  ANCHORS_LITORAL: ["CENTRO DE ESTUDIANTES DEL LITORAL", "SEDE DEL LITORAL", "LITORAL"],
+  ANCHORS_FCE: ["JD-FCEUSB", "FEDERACION", "FCEUSB", "FCE"],
 
-  // Encabezado para Litoral (y variantes)
-  HEADERS_LITORAL_VARIANTS: [
-    "JD-CE SEDE DE LITORAL",
-    "JD-CE SEDE DEL LITORAL",
-    "CE LITORAL",
-    "LITORAL"
-  ],
-
-  // Mapa de columnas de conteo por bloque
-  MAPA_CARGOS: {
-    FCE: {
-      "PRESIDENCIA": 3,
-      "GENERAL": 5,
-      "SERVICIOS": 7,
-      "ACADEMICA": 9,
-      "ACADÉMICA": 9,
-      "FINANZAS": 11,
-      "DEFAULT": 3
-    },
-    LITORAL: {
-      "PRESIDENCIA": 3,
-      "VICE": 4,
-      "GENERAL": 5,
-      "ACTAS": 6,
-      "TESORERIA": 7,
-      "ACADEMICA": 8,
-      "ACADÉMICA": 8,
-      "SERVICIO": 9,
-      "DEPORTE": 10,
-      "DEFAULT": 3
-    },
-    SARTENEJAS: {
-      "DEFAULT": 3
-    }
+  MAPA_FCE: {
+    "PRESIDENCIA": 3, "PRESI": 3, "GENERAL": 5, "GEN": 5,
+    "SERVICIOS": 7, "SERV": 7, "ACADEMICA": 9, "ACAD": 9,
+    "FINANZAS": 11, "FINAN": 11, "DEFAULT": 3
   },
 
-  // Lista de cargos típicos para detectar preguntas de Federación aunque no tengan palabras clave
-  CARGOS_FCE_LIST: [
-    "PRESIDENCIA",
-    "VICEPRESIDENCIA",
-    "SECRETARIA GENERAL",
-    "SECRETARÍA GENERAL",
-    "SECRETARIA DE SERVICIOS",
-    "SECRETARÍA DE SERVICIOS",
-    "SECRETARIA ACADEMICA",
-    "SECRETARÍA ACADÉMICA",
-    "SECRETARIA DE FINANZAS",
-    "SECRETARÍA DE FINANZAS"
-  ],
-
-  // Palabras que sugieren preguntas de centro
-  KEY_CENTRO_HINTS: [
-    "CENTRO",
-    "DELEGACION",
-    "DELEGACIÓN",
-    "TESORERIA",
-    "TESORERÍA",
-    "ACTAS",
-    "DEPORTE",
-    "VOTACION",
-    "VOTACIÓN",
-    "ELECCION",
-    "ELECCIÓN"
-  ],
-
-  // NUEVO: pistas explícitas para Federación y Centro en títulos crudos
-  KEY_FED_HINTS: ["FCEUSB","FEDERACION","FEDERACIÓN","JD-FCEUSB","FCE"],
-  KEY_AGRUPACION_CENTRO_HINTS: ["CENTRO","CE","LITORAL","SARTENEJAS","JD-CE","JUDE"]
+  CODIGOS_FIX: { "4100": "0600", "200":  "0200" }
 };
 
-
-/* 2. LÓGICA PRINCIPAL */
 function onFormSubmit(e) {
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(30000); } catch (e) { return; }
+
   try {
-    const itemResponses = e.response && e.response.getItemResponses ? e.response.getItemResponses() : [];
-    if (!itemResponses || !itemResponses.length) { Logger.log("[WARN] Sin respuestas"); return; }
+    const itemResponses = e.response ? e.response.getItemResponses() : [];
+    if (!itemResponses.length) return;
 
-    let carnet = "";
-    let sede = "";
+    // --- 1. LECTURA ---
+    let carnetInput = "";
+    let esLitoral = false;
 
-    // Leer datos del form con tolerancia
     for (let i = 0; i < itemResponses.length; i++) {
-      const titulo = normalizeStr(itemResponses[i].getItem().getTitle());
-      const respuesta = itemResponses[i].getResponse();
-      const respStr = String(respuesta || "").trim();
+      const t = normalizeStr(itemResponses[i].getItem().getTitle());
+      const r = String(itemResponses[i].getResponse() || "").trim();
 
-      if (titulo.includes(normalizeStr(CONFIG.KEY_CARNET))) carnet = respStr;
-      if (titulo.includes(normalizeStr(CONFIG.KEY_SEDE)))   sede = normalizeStr(respStr);
+      if (t.includes(CONFIG.KEY_CARNET)) carnetInput = r.replace(/[^0-9]/g, "");
+      if (t.includes(CONFIG.KEY_SEDE) && !t.includes("VOTACION")) {
+        if (normalizeStr(r).includes("LITORAL")) esLitoral = true;
+      }
     }
 
-    if (!carnet) { Logger.log("[ERROR] Falta Carnet."); return; }
-    if (!sede)   { sede = "SARTENEJAS"; }
+    if (!carnetInput) return;
 
-    Logger.log(`[PROCESANDO] Carnet: ${carnet} | Sede: ${sede}`);
-
-    // Selección de hoja de registro
-    const esLitoral = sede.includes("LITORAL");
+    // --- 2. VALIDACIÓN ---
     const idRegistro = esLitoral ? CONFIG.ID_REGISTRO_LITORAL : CONFIG.ID_REGISTRO_SARTENEJAS;
+    const ssRegistro = SpreadsheetApp.openById(idRegistro);
+    let sheetRegistro = ssRegistro.getSheetByName(CONFIG.TAB_NAME_REGISTRO);
+    if (!sheetRegistro) sheetRegistro = ssRegistro.getSheets()[0];
 
-    const sheetReg = SpreadsheetApp.openById(idRegistro).getSheetByName(CONFIG.TAB_NAME_REGISTRO);
-    if (!sheetReg) { Logger.log("[ERROR] Hoja de registro no encontrada."); return; }
+    const filaUsuario = buscarUsuarioManual(sheetRegistro, carnetInput);
+    if (filaUsuario === -1) { Logger.log("Carnet no encontrado"); return; }
 
-    const lastRowReg = sheetReg.getLastRow() || 1;
-    const carnetRange = sheetReg.getRange(1, CONFIG.COL_CARNET, lastRowReg, 1);
-    const finder = carnetRange.createTextFinder(carnet).matchEntireCell(true).matchCase(false);
-    const result = finder.findNext();
+    const colYaVoto = esLitoral ? CONFIG.COL_YA_VOTO_LIT : CONFIG.COL_YA_VOTO_SART;
+    const celdaYaVoto = sheetRegistro.getRange(filaUsuario, colYaVoto);
+    if (normalizeStr(celdaYaVoto.getValue()) === "SI") return;
 
-    if (!result) { Logger.log(`[RECHAZADO] Carnet no encontrado.`); return; }
-
-    const rowUser = result.getRow();
-
-    const colYaVoto = esLitoral ? CONFIG.COL_YA_VOTO_LITORAL : CONFIG.COL_YA_VOTO;
-    const cellYaVoto = sheetReg.getRange(rowUser, colYaVoto);
-
-    if (normalizeStr(cellYaVoto.getValue()) === "SI") { Logger.log(`[REPETIDO] Ya votó.`); return; }
-
-    // Validar carrera (solo aplica para Sartenejas centro)
+    // --- 3. CARRERA ---
+    let codigoCarrera = "";
     let puedeVotarCentro = true;
-    let codigoAnclaje = "";
-    let columnaBusquedaAncla = 0;
 
     if (esLitoral) {
-      puedeVotarCentro = true;
-      codigoAnclaje = "LITORAL"; // se usará con variantes
-      columnaBusquedaAncla = CONFIG.COL_RES_TITULOS;
+      codigoCarrera = "LITORAL"; 
     } else {
-      const rawCode = String(sheetReg.getRange(rowUser, CONFIG.COL_CODIGO_CARRERA).getValue() || "").trim();
-      const codeNorm = normalizeStr(rawCode);
-      const esBasico = (codeNorm === "0" || codeNorm === "00" || codeNorm.includes("BASIC"));
-      puedeVotarCentro = !esBasico;
-      codigoAnclaje = extractCodeDigits(rawCode);
-      columnaBusquedaAncla = CONFIG.COL_RES_ANCLAJE;
+      const rawCode = String(sheetRegistro.getRange(filaUsuario, CONFIG.COL_CODIGO_CARRERA).getValue());
+      const codeClean = normalizeStr(rawCode);
+      puedeVotarCentro = !(codeClean === "0" || codeClean === "00" || codeClean.includes("BASIC"));
+      codigoCarrera = formatearCodigo(rawCode);
     }
 
-    // Guardar votos con lock
-    const lock = LockService.getDocumentLock();
-    if (!lock.tryLock(10000)) { Logger.log("[ERROR] No pudo adquirirse el lock."); return; }
+    // --- 4. RESULTADOS ---
+    const ssResultados = SpreadsheetApp.openById(CONFIG.ID_RESULTADOS);
+    let sheetResultados = ssResultados.getSheetByName(CONFIG.TAB_NAME_RESULTADOS);
+    if (!sheetResultados) sheetResultados = ssResultados.getSheets()[0];
 
-    try {
-      // marcar que ya votó
-      cellYaVoto.setValue("SI");
+    for (let i = 0; i < itemResponses.length; i++) {
+      const item = itemResponses[i];
+      const tituloRaw = item.getItem().getTitle();
+      const tituloNorm = normalizeStr(tituloRaw);
+      const respuesta = item.getResponse();
 
-      const sheetRes = SpreadsheetApp.openById(CONFIG.ID_RESULTADOS).getSheetByName(CONFIG.TAB_NAME_RESULTADOS);
-      if (!sheetRes) { Logger.log("[ERROR] Hoja RESULTADOS no encontrada."); return; }
+      if (!respuesta || tituloNorm.includes("CARNET") || tituloNorm.includes("CORREO") || tituloNorm.includes("NOMBRE") || tituloNorm === "SEDE") continue;
 
-      for (let i = 0; i < itemResponses.length; i++) {
-        const item = itemResponses[i];
-        const tituloRaw = item.getItem().getTitle() || "";
-        const titulo = normalizeStr(tituloRaw);
-        const votoOriginal = item.getResponse();
-        const votoLimpio = normalizarVoto(votoOriginal); // "BLANCO" o nombre de plancha normalizado
-        const tipoPregunta = clasificarPreguntaAgrupacion(tituloRaw, esLitoral);
+      const votoLimpio = limpiarVoto(respuesta);
+      
+      let tipo = "OTRO";
+      if (tituloNorm.includes("LITORAL") && tituloNorm.includes("CENTRO")) tipo = "LITORAL";
+      else if (tituloNorm.includes("FEDERACION") || tituloNorm.includes("FCE")) tipo = "FCE";
+      else if (tituloNorm.includes("CENTRO") || tituloNorm.includes("VOTACION") || tituloNorm.includes("ELECCION")) tipo = "CENTRO";
 
-        if (tipoPregunta === "FCE") {
-          const targetCol = obtenerColumnaDesdeMapa(tituloRaw, CONFIG.MAPA_CARGOS.FCE); // usa raw para detectar keywords
-          const anchorCell = findAnchorFlexible(sheetRes, CONFIG.HEADERS_FCE_VARIANTS, CONFIG.COL_RES_TITULOS);
-          if (!anchorCell) {
-            Logger.log(`[ALERTA] Bloque FCE no encontrado en col ${CONFIG.COL_RES_TITULOS}. Variantes: ${CONFIG.HEADERS_FCE_VARIANTS.join(", ")}`);
-            continue;
-          }
-          smartVoteCountFromAnchor(sheetRes, anchorCell.getRow(), votoLimpio, 80, targetCol);
-        }
-        else if (tipoPregunta === "CENTRO") {
-          if (puedeVotarCentro) {
-            const mapaUsar = esLitoral ? CONFIG.MAPA_CARGOS.LITORAL : CONFIG.MAPA_CARGOS.SARTENEJAS;
-            const targetCol = obtenerColumnaDesdeMapa(tituloRaw, mapaUsar);
-
-            let anchorCell;
-            if (esLitoral) {
-              anchorCell = findAnchorFlexible(sheetRes, CONFIG.HEADERS_LITORAL_VARIANTS, CONFIG.COL_RES_TITULOS);
-            } else {
-              anchorCell = findAnchorByCode(sheetRes, codigoAnclaje, CONFIG.COL_RES_ANCLAJE);
-            }
-
-            if (!anchorCell) {
-              Logger.log(`[ALERTA] Bloque Centro no encontrado: '${codigoAnclaje}' en col ${esLitoral ? CONFIG.COL_RES_TITULOS : CONFIG.COL_RES_ANCLAJE}`);
-              continue;
-            }
-
-            smartVoteCountFromAnchor(sheetRes, anchorCell.getRow(), votoLimpio, 120, targetCol);
-          } else {
-            Logger.log(`[INFO] Usuario ${carnet} no puede votar centros (ciclo básico).`);
-          }
-        }
-        else {
-          // No clasificado: ignora preguntas administrativas (Nombre, Apellido, etc.)
-          Logger.log(`[DEBUG] Pregunta no electoral: ${tituloRaw}`);
-        }
+      // A) FCE
+      if (tipo === "FCE") {
+        const colDestino = determinarColumnaFCE(tituloNorm);
+        const bloqueFCE = encontrarBloque(sheetResultados, CONFIG.ANCHORS_FCE, CONFIG.COL_BUSQUEDA_TITULOS); // Busca título en C
+        if (bloqueFCE) registrarVotoFCE(sheetResultados, bloqueFCE.getRow(), votoLimpio, colDestino);
       }
 
-      SpreadsheetApp.flush();
-      Logger.log("[EXITO] Voto guardado.");
+      // B) LITORAL
+      else if (tipo === "LITORAL" && esLitoral) {
+        // Busca título en Columna C
+        const bloqueLit = encontrarBloque(sheetResultados, CONFIG.ANCHORS_LITORAL, CONFIG.COL_BUSQUEDA_TITULOS);
+        if (bloqueLit) registrarVotoCentro(sheetResultados, bloqueLit.getRow(), votoLimpio);
+      }
 
-    } catch (e) {
-      Logger.log("[CRITICO] Error interno: " + e);
-    } finally {
-      try { lock.releaseLock(); } catch (er) { /* ignore */ }
+      // C) CENTRO SARTENEJAS
+      else if (tipo === "CENTRO" && !esLitoral) {
+        if (puedeVotarCentro) {
+          // Busca código en Columna C
+          const bloqueCentro = encontrarBloquePorCodigo(sheetResultados, codigoCarrera, CONFIG.COL_BUSQUEDA_TITULOS);
+          
+          if (bloqueCentro) {
+            registrarVotoCentro(sheetResultados, bloqueCentro.getRow(), votoLimpio);
+          } else {
+            Logger.log(`[ALERTA] Bloque Carrera '${codigoCarrera}' no encontrado en Columna C.`);
+          }
+        } else {
+          registrarInvalido(sheetResultados);
+        }
+      }
     }
 
-  } catch (error) {
-    Logger.log("[FATAL] " + error);
+    celdaYaVoto.setValue("SI");
+    SpreadsheetApp.flush();
+
+  } catch (err) {
+    Logger.log("[ERROR] " + err.toString());
+  } finally {
+    lock.releaseLock();
   }
 }
 
-/* 3. UTILIDADES DE NORMALIZACIÓN */
+/* ==========================================
+   LÓGICA ADAPTADA AL CSV
+   ========================================== */
+
+function registrarVotoCentro(sheet, filaTitulo, nombreCandidato) {
+  // Buscamos nombres en COLUMNA B (2), empezando una fila debajo del título
+  const rangoNombres = sheet.getRange(filaTitulo + 1, CONFIG.COL_BUSQUEDA_NOMBRES, 15, 1);
+  // Verificamos frenos en COLUMNA C (3)
+  const rangoTitulos = sheet.getRange(filaTitulo + 1, CONFIG.COL_BUSQUEDA_TITULOS, 15, 1);
+  
+  const valsNombres = rangoNombres.getValues();
+  const valsTitulos = rangoTitulos.getValues(); // Aquí miramos si hay texto (otro título)
+
+  const buscado = normalizeStr(nombreCandidato);
+  const esBlanco = buscado.includes("BLANCO");
+
+  Logger.log(`   > Buscando '${nombreCandidato}' bajo fila ${filaTitulo}...`);
+
+  for (let i = 0; i < 15; i++) {
+    const nombreEnB = normalizeStr(valsNombres[i][0]);
+    const tituloEnC = String(valsTitulos[i][0]).trim(); // Verificar si hay título nuevo
+
+    // 1. FRENO:
+    if (tituloEnC.length > 3 && (tituloEnC.includes("-") || tituloEnC.match(/\d/))) {
+       // OJO: Ignoramos si es un número simple (porque podría ser un voto ya existente de otro candidato)
+       // Solo frenamos si parece TEXTO de título.
+       if (isNaN(tituloEnC)) { 
+          Logger.log(`   [FRENO] Título detectado en Col C fila relativa ${i}: ${tituloEnC}`);
+          break; 
+       }
+    }
+
+    // 2. MATCH
+    let match = false;
+    if (esBlanco) {
+      if (nombreEnB.includes("BLANCO")) match = true;
+    } else {
+      if (nombreEnB && (nombreEnB === buscado || nombreEnB.includes(buscado) || buscado.includes(nombreEnB))) {
+        match = true;
+      }
+    }
+
+    if (match) {
+      // Escribir en Columna C (CONFIG.COL_CONTEO_DESTINO), misma fila
+      const celda = sheet.getRange(filaTitulo + 1 + i, CONFIG.COL_CONTEO_DESTINO);
+      const val = Number(celda.getValue()) || 0;
+      celda.setValue(val + 1);
+      Logger.log(`   [OK] Voto sumado en Col C, fila ${filaTitulo + 1 + i}`);
+      return;
+    }
+  }
+  Logger.log(`   [ERROR] No se encontró '${nombreCandidato}' en el bloque.`);
+}
+
+// Función específica para FCE porque sus columnas de destino varían
+function registrarVotoFCE(sheet, filaTitulo, nombreCandidato, colDestino) {
+  const rangoNombres = sheet.getRange(filaTitulo + 1, CONFIG.COL_BUSQUEDA_NOMBRES, 20, 1); // Nombres en B
+  const vals = rangoNombres.getValues();
+  const buscado = normalizeStr(nombreCandidato);
+
+  for (let i = 0; i < vals.length; i++) {
+    const leido = normalizeStr(vals[i][0]);
+    // Freno simple por vacío
+    if (leido === "" && i > 2 && normalizeStr(vals[i+1][0]) === "") break;
+
+    if (leido && (leido === buscado || leido.includes(buscado) || buscado.includes(leido))) {
+      const celda = sheet.getRange(filaTitulo + 1 + i, colDestino);
+      celda.setValue((Number(celda.getValue()) || 0) + 1);
+      return;
+    }
+  }
+}
+
+// --- UTILIDADES ---
+function formatearCodigo(raw) {
+  let s = String(raw || "").trim().toUpperCase();
+  if (CONFIG.CODIGOS_FIX[s]) return CONFIG.CODIGOS_FIX[s];
+  let nums = s.match(/\d+/g);
+  let code = nums ? nums.join('') : "";
+  if (CONFIG.CODIGOS_FIX[code]) return CONFIG.CODIGOS_FIX[code];
+  if (/^0?50[0-9]/.test(code)) return "050X";
+  if (code.length > 0 && code.length < 4) code = code.padStart(4, '0');
+  return code;
+}
+
+function limpiarVoto(votoRaw) {
+  const v = String(votoRaw || "").trim();
+  let vLimpio = v.replace(/^PLANCHA[\s:\-]+/i, ""); 
+  const vNorm = normalizeStr(vLimpio);
+  if (vNorm.includes("BLANCO")) return "Blanco";
+  const parenMatch = v.match(/\((?:\s*Plancha\s*[:\-]?\s*)?(.+?)\s*\)/i);
+  if (parenMatch && parenMatch[1].length > 1) return normalizeStr(parenMatch[1]);
+  return vNorm;
+}
+
+function buscarUsuarioManual(sheet, carnetBuscado) {
+  const lastRow = sheet.getLastRow();
+  const valores = sheet.getRange(1, CONFIG.COL_CARNET, lastRow, 1).getDisplayValues();
+  for (let i = 0; i < valores.length; i++) {
+    const carnetExcel = String(valores[i][0]).replace(/[^0-9]/g, "");
+    if (carnetExcel === carnetBuscado) return i + 1; 
+  }
+  return -1;
+}
+
+function encontrarBloque(sheet, variantes, colIndex) {
+  const lastRow = sheet.getLastRow();
+  const values = sheet.getRange(1, colIndex, lastRow, 1).getValues();
+  for (let i = 0; i < values.length; i++) {
+    const valCelda = normalizeStr(values[i][0]);
+    if (!valCelda) continue;
+    for (const variante of variantes) {
+      if (valCelda.includes(normalizeStr(variante))) return sheet.getRange(i + 1, colIndex);
+    }
+  }
+  return null;
+}
+
+function encontrarBloquePorCodigo(sheet, codigo, colIndex) {
+  if (!codigo) return null;
+  const values = sheet.getRange(1, colIndex, sheet.getLastRow(), 1).getValues();
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][0]).toUpperCase().includes(codigo)) {
+      return sheet.getRange(i + 1, colIndex);
+    }
+  }
+  return null;
+}
+
+function determinarColumnaFCE(titulo) {
+  const t = normalizeStr(titulo);
+  for (let key in CONFIG.MAPA_FCE) {
+    if (key !== "DEFAULT" && t.includes(normalizeStr(key))) return CONFIG.MAPA_FCE[key];
+  }
+  return CONFIG.MAPA_FCE.DEFAULT;
+}
+
+function registrarInvalido(sheet) {
+  // Busca texto exacto en cualquier lado de Col C
+  const finder = sheet.getRange(1, CONFIG.COL_BUSQUEDA_TITULOS, sheet.getLastRow(), 1).createTextFinder(CONFIG.TXT_INVALIDOS);
+  const match = finder.findNext();
+  if (match) {
+    const celda = sheet.getRange(match.getRow(), CONFIG.COL_RES_CONTEO_INVALIDO);
+    celda.setValue((Number(celda.getValue()) || 0) + 1);
+  }
+}
 
 function normalizeStr(val) {
-  if (val === null || val === undefined) return "";
-  try {
-    return String(val)
-      .toUpperCase()
-      .trim()
-      .normalize('NFD')
-      .replace(/\p{Diacritic}/gu, '')
-      .replace(/\s+/g, ' ') // colapsa espacios múltiples
-      .replace(/[\u200B-\u200D\uFEFF]/g, ''); // quita espacios invisibles
-  } catch (e) {
-    return String(val).toUpperCase().trim();
-  }
-}
-
-// Extrae dígitos de un código
-function extractCodeDigits(str) {
-  const s = String(str || "");
-  const match = s.match(/\d+/g);
-  return match ? match.join('') : "";
-}
-
-// Detecta si una cadena contiene otra, normalizadas
-function containsNorm(haystack, needle) {
-  const h = normalizeStr(haystack);
-  const n = normalizeStr(needle);
-  return h.includes(n);
-}
-
-function clasificarPreguntaAgrupacion(tituloRaw, esLitoral) {
-  const t = normalizeStr(tituloRaw);
-
-  // Pistas explícitas primero
-  for (const kw of CONFIG.KEY_FED_HINTS) {
-    if (t.includes(normalizeStr(kw))) return "FCE";
-  }
-  for (const kw of CONFIG.KEY_AGRUPACION_CENTRO_HINTS) {
-    if (t.includes(normalizeStr(kw))) return "CENTRO";
-  }
-
-  // Heurística por cargos compartidos
-  for (const cargo of CONFIG.CARGOS_FCE_LIST) {
-    if (t.includes(normalizeStr(cargo))) {
-      return esLitoral ? "CENTRO" : "FCE";
-    }
-  }
-
-  // Hints genéricos de centro
-  for (const kw of CONFIG.KEY_CENTRO_HINTS) {
-    if (t.includes(normalizeStr(kw))) return "CENTRO";
-  }
-
-  return "OTRO";
-}
-
-
-/* 4. LOCALIZACIÓN FLEXIBLE DE ANCLAS EN LA HOJA */
-
-function findAnchorFlexible(sheet, variants, anchorColIndex) {
-  const lastRow = sheet.getLastRow() || 1;
-  const colRange = sheet.getRange(1, anchorColIndex, lastRow, 1);
-  const values = colRange.getValues().map(r => normalizeStr(r[0]));
-
-  for (let row = 0; row < values.length; row++) {
-    const cellVal = values[row];
-    if (!cellVal) continue;
-    for (const v of variants) {
-      if (cellVal.includes(normalizeStr(v))) {
-        return sheet.getRange(row + 1, anchorColIndex); // +1 por índice base 1
-      }
-    }
-  }
-  return null;
-}
-
-function findAnchorByCode(sheet, codeDigits, anchorColIndex) {
-  const code = extractCodeDigits(codeDigits);
-  if (!code) return null;
-  const lastRow = sheet.getLastRow() || 1;
-  const colRange = sheet.getRange(1, anchorColIndex, lastRow, 1);
-  const values = colRange.getValues().map(r => String(r[0] || ""));
-
-  for (let row = 0; row < values.length; row++) {
-    const digits = extractCodeDigits(values[row]);
-    if (digits === code) {
-      return sheet.getRange(row + 1, anchorColIndex);
-    }
-  }
-  return null;
-}
-
-
-/* 5. CONTEO DE VOTOS DESDE UN ANCLA */
-
-function normalizarVoto(voto) {
-  if (!voto && voto !== 0) return "";
-  const v = String(voto || "").trim();
-  const vNorm = normalizeStr(v);
-
-  // BLANCO explícito
-  if (vNorm.includes("BLANCO")) return "BLANCO";
-
-  // Filtrar respuestas administrativas
-  if (vNorm.startsWith("SEDE")) return "";   // evita "SEDE SARTENEJAS"
-  if (vNorm === "N/A" || vNorm === "NO") return "";
-
-  // Extraer entre paréntesis: "(Plancha X)" o "(X)"
-  const paren = v.match(/\((?:\s*Plancha\s*[:\-]?\s*)?(.+?)\s*\)/i);
-  if (paren && paren[1]) return normalizeStr(paren[1]);
-
-  // Prefijo "Plancha X"
-  const planchaPref = v.match(/^\s*Plancha\s*[:\-]?\s*(.+)$/i);
-  if (planchaPref && planchaPref[1]) return normalizeStr(planchaPref[1]);
-
-  // Separadores comunes
-  const parts = v.split(/[-–—|]/).map(p => p.trim()).filter(Boolean);
-  if (parts.length === 1) return normalizeStr(parts[0]);
-
-  for (let p of parts) {
-    if (/PLANCHA/i.test(p)) {
-      return normalizeStr(p.replace(/PLANCHA/i, '').trim());
-    }
-  }
-
-  // Fallback: parte más corta (probable nombre)
-  let shortest = parts.reduce((a, b) => a.length <= b.length ? a : b, parts[0]);
-  return normalizeStr(shortest);
-}
-
-function obtenerColumnaDesdeMapa(tituloPreguntaRaw, mapa) {
-  if (!mapa) return 3;
-  const tituloUp = normalizeStr(tituloPreguntaRaw || "");
-  for (let clave in mapa) {
-    if (clave === "DEFAULT") continue;
-    if (tituloUp.includes(normalizeStr(clave))) {
-      return mapa[clave];
-    }
-  }
-  return mapa["DEFAULT"];
-}
-
-function smartVoteCountFromAnchor(sheet, startRow, candidateNameNorm, searchDepth, targetColIndex) {
-  if (!candidateNameNorm) { Logger.log("[WARN] smartVoteCount sin candidateName"); return; }
-
-  const lastRow = sheet.getLastRow() || startRow;
-  const endRow = Math.min(lastRow, startRow + (searchDepth || 60) - 1);
-  const numRows = Math.max(1, endRow - startRow + 1);
-
-  // Leer nombres de planchas
-  const namesRange = sheet.getRange(startRow, CONFIG.COL_RES_NOMBRES, numRows, 1);
-  const namesVals = namesRange.getValues();
-
-  let foundRow = null;
-  const candidateNorm = normalizeStr(candidateNameNorm);
-
-  for (let i = 0; i < namesVals.length; i++) {
-    const raw = namesVals[i][0];
-    const cellNorm = normalizeStr(raw);
-    if (!cellNorm) continue;
-
-    // Intentos de match: exacto, contains, inverse contains, startsWith
-    if (
-      cellNorm === candidateNorm ||
-      cellNorm.includes(candidateNorm) ||
-      candidateNorm.includes(cellNorm) ||
-      cellNorm.startsWith(candidateNorm) ||
-      candidateNorm.startsWith(cellNorm)
-    ) {
-      foundRow = startRow + i;
-      break;
-    }
-
-    // Caso especial BLANCO
-    if (candidateNorm === "BLANCO" && cellNorm === "BLANCO") {
-      foundRow = startRow + i;
-      break;
-    }
-  }
-
-  if (foundRow) {
-    const cellCount = sheet.getRange(foundRow, targetColIndex);
-    const valRaw = cellCount.getValue();
-    const current = (typeof valRaw === 'number') ? valRaw : (isFinite(Number(valRaw)) ? Number(valRaw) : 0);
-    const newVal = current + 1;
-    cellCount.setValue(newVal);
-    Logger.log(` +1 a '${candidateNameNorm}' en Col ${targetColIndex} fila ${foundRow} (antes ${current} ahora ${newVal})`);
-  } else {
-    Logger.log(`[ALERTA] Candidato '${candidateNameNorm}' no encontrado desde fila ${startRow} hasta ${endRow} en Col ${CONFIG.COL_RES_NOMBRES}`);
-  }
+  if (!val) return "";
+  return String(val).toUpperCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
 }
