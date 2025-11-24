@@ -12,7 +12,8 @@ const CONFIG = {
   // Columnas de registro
   COL_CARNET: 1,           // A
   COL_CODIGO_CARRERA: 5,   // E
-  COL_YA_VOTO: 10,         // J
+  COL_YA_VOTO: 10,         // J 
+  COL_YA_VOTO_LITORAL: 7,  // G
 
   // Columnas de resultados
   COL_RES_NOMBRES: 2,      // B: Nombres de planchas/candidatos
@@ -23,9 +24,10 @@ const CONFIG = {
   KEY_CARNET: "CARNET",
   KEY_SEDE:   "SEDE",
 
-  // Variantes de encabezado reconocidas para Federación
+  // Variantes de encabezado reconocidas para Federación (se probarán todas)
   HEADERS_FCE_VARIANTS: [
     "JD-FCEUSB",
+    "JDC-FCEUSB",     // por si aparece esta variante en alguna hoja
     "FEDERACION FCEUSB",
     "FEDERACION",
     "FCEUSB"
@@ -33,6 +35,7 @@ const CONFIG = {
 
   // Encabezado para Litoral (y variantes)
   HEADERS_LITORAL_VARIANTS: [
+    "JD-CE SEDE DE LITORAL",
     "JD-CE SEDE DEL LITORAL",
     "CE LITORAL",
     "LITORAL"
@@ -51,7 +54,7 @@ const CONFIG = {
     },
     LITORAL: {
       "PRESIDENCIA": 3,
-      "VICEPRESIDENCIA": 4,
+      "VICE": 4,
       "GENERAL": 5,
       "ACTAS": 6,
       "TESORERIA": 7,
@@ -93,7 +96,11 @@ const CONFIG = {
     "VOTACIÓN",
     "ELECCION",
     "ELECCIÓN"
-  ]
+  ],
+
+  // NUEVO: pistas explícitas para Federación y Centro en títulos crudos
+  KEY_FED_HINTS: ["FCEUSB","FEDERACION","FEDERACIÓN","JD-FCEUSB","FCE"],
+  KEY_AGRUPACION_CENTRO_HINTS: ["CENTRO","CE","LITORAL","SARTENEJAS","JD-CE","JUDE"]
 };
 
 
@@ -136,7 +143,9 @@ function onFormSubmit(e) {
     if (!result) { Logger.log(`[RECHAZADO] Carnet no encontrado.`); return; }
 
     const rowUser = result.getRow();
-    const cellYaVoto = sheetReg.getRange(rowUser, CONFIG.COL_YA_VOTO);
+
+    const colYaVoto = esLitoral ? CONFIG.COL_YA_VOTO_LITORAL : CONFIG.COL_YA_VOTO;
+    const cellYaVoto = sheetReg.getRange(rowUser, colYaVoto);
 
     if (normalizeStr(cellYaVoto.getValue()) === "SI") { Logger.log(`[REPETIDO] Ya votó.`); return; }
 
@@ -154,7 +163,7 @@ function onFormSubmit(e) {
       const codeNorm = normalizeStr(rawCode);
       const esBasico = (codeNorm === "0" || codeNorm === "00" || codeNorm.includes("BASIC"));
       puedeVotarCentro = !esBasico;
-      codigoAnclaje = extractCodeDigits(rawCode); // "4300" etc.
+      codigoAnclaje = extractCodeDigits(rawCode);
       columnaBusquedaAncla = CONFIG.COL_RES_ANCLAJE;
     }
 
@@ -175,9 +184,7 @@ function onFormSubmit(e) {
         const titulo = normalizeStr(tituloRaw);
         const votoOriginal = item.getResponse();
         const votoLimpio = normalizarVoto(votoOriginal); // "BLANCO" o nombre de plancha normalizado
-
-        // Clasificación robusta del bloque
-        const tipoPregunta = clasificarPregunta(titulo);
+        const tipoPregunta = clasificarPreguntaAgrupacion(tituloRaw, esLitoral);
 
         if (tipoPregunta === "FCE") {
           const targetCol = obtenerColumnaDesdeMapa(tituloRaw, CONFIG.MAPA_CARGOS.FCE); // usa raw para detectar keywords
@@ -230,7 +237,6 @@ function onFormSubmit(e) {
   }
 }
 
-
 /* 3. UTILIDADES DE NORMALIZACIÓN */
 
 function normalizeStr(val) {
@@ -248,7 +254,7 @@ function normalizeStr(val) {
   }
 }
 
-// Extrae dígitos de un código (ej. " - 4300 - " -> "4300")
+// Extrae dígitos de un código
 function extractCodeDigits(str) {
   const s = String(str || "");
   const match = s.match(/\d+/g);
@@ -262,23 +268,27 @@ function containsNorm(haystack, needle) {
   return h.includes(n);
 }
 
-// Clasificación robusta de pregunta: FCE, CENTRO o OTRO
-function clasificarPregunta(tituloNorm) {
-  const t = normalizeStr(tituloNorm);
+function clasificarPreguntaAgrupacion(tituloRaw, esLitoral) {
+  const t = normalizeStr(tituloRaw);
 
-  // Si contiene pistas de centro
-  for (const kw of CONFIG.KEY_CENTRO_HINTS) {
+  // Pistas explícitas primero
+  for (const kw of CONFIG.KEY_FED_HINTS) {
+    if (t.includes(normalizeStr(kw))) return "FCE";
+  }
+  for (const kw of CONFIG.KEY_AGRUPACION_CENTRO_HINTS) {
     if (t.includes(normalizeStr(kw))) return "CENTRO";
   }
 
-  // Si coincide con cargos de FCE
+  // Heurística por cargos compartidos
   for (const cargo of CONFIG.CARGOS_FCE_LIST) {
-    if (t.includes(normalizeStr(cargo))) return "FCE";
+    if (t.includes(normalizeStr(cargo))) {
+      return esLitoral ? "CENTRO" : "FCE";
+    }
   }
 
-  // Fallback: intenta distinguir por contexto
-  if (t.includes("PRESIDENCIA") || t.includes("SECRETARIA") || t.includes("SECRETARÍA")) {
-    return "FCE";
+  // Hints genéricos de centro
+  for (const kw of CONFIG.KEY_CENTRO_HINTS) {
+    if (t.includes(normalizeStr(kw))) return "CENTRO";
   }
 
   return "OTRO";
@@ -326,9 +336,14 @@ function findAnchorByCode(sheet, codeDigits, anchorColIndex) {
 function normalizarVoto(voto) {
   if (!voto && voto !== 0) return "";
   const v = String(voto || "").trim();
+  const vNorm = normalizeStr(v);
 
-  // BLANCO
-  if (normalizeStr(v).includes("BLANCO")) return "BLANCO";
+  // BLANCO explícito
+  if (vNorm.includes("BLANCO")) return "BLANCO";
+
+  // Filtrar respuestas administrativas
+  if (vNorm.startsWith("SEDE")) return "";   // evita "SEDE SARTENEJAS"
+  if (vNorm === "N/A" || vNorm === "NO") return "";
 
   // Extraer entre paréntesis: "(Plancha X)" o "(X)"
   const paren = v.match(/\((?:\s*Plancha\s*[:\-]?\s*)?(.+?)\s*\)/i);
